@@ -1,56 +1,85 @@
-import { getServerSession } from "next-auth";
-import { SendCard } from "../../../components/SendCard";
-import { authOptions } from "../../lib/auth";
 import prisma from "@repo/db/client";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../lib/auth";
+import { SendCard } from "../../../components/SendCard";
+import { BalanceCard } from "../../../components/BalanceCard";
 import { Transactions } from "../../../components/Transactions";
 
-async function getP2P_SentTransactions() {
+async function getBalance() {
     const session = await getServerSession(authOptions);
-    const txns = await prisma.p2pTransfer.findMany({
+    const balance = await prisma.balance.findFirst({
         where: {
-            toUserId: Number(session?.user?.id),
+            userId: Number(session?.user?.id),
         },
-        orderBy: { timestamp: "desc" }, // Sort by latest first
     });
-    return txns.map((t) => ({
-        time: t.timestamp,
-        amount: t.amount,
-    }));
+    return {
+        amount: balance?.amount || 0,
+        locked: balance?.locked || 0,
+    };
 }
 
-async function getP2P_ReceivedTransactions() {
+async function getP2PTransactions() {
     const session = await getServerSession(authOptions);
-    const txns = await prisma.p2pTransfer.findMany({
+
+    const sentTransactions = await prisma.p2pTransfer.findMany({
         where: {
             fromUserId: Number(session?.user?.id),
         },
-        orderBy: { timestamp: "desc" }, // Sort by latest first
+        include: {
+            toUser: true, // Include the related user
+        },
+        orderBy: { timestamp: "desc" },
     });
-    return txns.map((t) => ({
-        time: t.timestamp,
-        amount: t.amount,
-    }));
+
+    const receivedTransactions = await prisma.p2pTransfer.findMany({
+        where: {
+            toUserId: Number(session?.user?.id),
+        },
+        include: {
+            fromUser: true, // Include the related user
+        },
+        orderBy: { timestamp: "desc" },
+    });
+
+    return {
+        sent: sentTransactions.map((t) => ({
+            time: t.timestamp,
+            amount: t.amount,
+            user: t.toUser.number, // Use the `number` of the recipient
+        })),
+        received: receivedTransactions.map((t) => ({
+            time: t.timestamp,
+            amount: t.amount,
+            user: t.fromUser.number, // Use the `number` of the sender
+        })),
+    };
 }
 
-export default async function HomePage() {
-    const transactionsSent = await getP2P_SentTransactions();
-    const transactionsReceived = await getP2P_ReceivedTransactions();
+export default async function P2PPage() {
+    const balance = await getBalance();
+    const { sent, received } = await getP2PTransactions();
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-6 space-y-8 flex items-center justify-between">
-            <div>
-            <SendCard />
+        <div className="w-screen">
+            <div className="text-4xl text-[#6a51a6] pt-8 mb-8 font-bold">
+                Peer-to-Peer Transfers
             </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 p-4">
+                {/* Left Section */}
+                <div>
+                    <SendCard />
+                </div>
 
-            <div className="space-y-6 w-[60%]">
-                <Transactions
-                    transactions={transactionsReceived}
-                    name="Transactions Sent"
-                />
-                <Transactions
-                    transactions={transactionsSent}
-                    name="Transactions Received"
-                />
+                {/* Right Section */}
+                <div>
+                    <BalanceCard amount={balance.amount} locked={balance.locked} />
+                    <div className="pt-4">
+                        <Transactions transactions={sent} name="Transactions Sent"/>
+                    </div>
+                    <div className="pt-4">
+                        <Transactions transactions={received} name="Transactions Received" />
+                    </div>
+                </div>
             </div>
         </div>
     );

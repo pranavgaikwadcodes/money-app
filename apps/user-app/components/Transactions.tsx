@@ -7,6 +7,7 @@ export const Transactions = ({
     transactions: {
         time: Date;
         amount: number;
+        user: any;
     }[];
     name: string;
 }) => {
@@ -26,11 +27,13 @@ export const Transactions = ({
                 {transactions.map((t, index) => (
                     <div
                         key={index}
-                        className="p-4 bg-gray-100 rounded-lg flex justify-between items-center"
+                        className="p-4 mt-1 bg-gray-100 rounded-lg flex justify-between items-center"
                     >
                         <div>
                             <div className="text-sm font-medium text-gray-700">
-                                {name === "Transactions Sent" ? "Sent to" : "Received from"}
+                                {name === "Transactions Sent"
+                                    ? `Sent to User : ${t.user}`
+                                    : `Received from User : ${t.user}`}
                             </div>
                             <div className="text-xs text-gray-500">
                                 {new Date(t.time).toLocaleDateString("en-US", {
