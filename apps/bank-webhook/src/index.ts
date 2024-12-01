@@ -1,23 +1,41 @@
 import express from "express";
 import db from "@repo/db/client";
+import { z } from 'zod';
+
 const app = express();
 
 app.use(express.json())
 
-app.post("/hdfcWebhook", async (req, res) => {
+const paymentInformationSchema = z.object({
+    token: z.string().min(1),
+    amount: z.number().min(1),
+    userId: z.number().min(1),
+})
+
+app.post("/hdfcWebhook", async (req: any, res: any) => {
     //TODO: Add zod validation here?
     //TODO: HDFC bank should ideally send us a secret so we know this is sent by them
-    const paymentInformation: {
-        token: string;
-        userId: string;
-        amount: string
-    } = {
-        token: req.body.token,
-        userId: req.body.user_identifier,
-        amount: req.body.amount
-    };
-
+    
     try {
+        const paymentInformation = paymentInformationSchema.parse({
+            token: req.body.token,
+            userId: req.body.user_identifier,
+            amount: req.body.amount,
+        });
+
+        const status = await db.onRampTransaction.findFirst({
+            where: {
+                userId: paymentInformation.userId,
+                amount: paymentInformation.amount,
+                token: paymentInformation.token,
+            },
+            select: { status: true },
+        });
+        
+        if (status?.status !== "Processing") {
+            return res.status(400).json({ message: "Transaction not in Processing state" });
+        }
+
         await db.$transaction([
             db.balance.updateMany({
                 where: {
@@ -33,7 +51,7 @@ app.post("/hdfcWebhook", async (req, res) => {
             db.onRampTransaction.updateMany({
                 where: {
                     token: paymentInformation.token
-                }, 
+                },
                 data: {
                     status: "Success",
                 }
@@ -43,11 +61,16 @@ app.post("/hdfcWebhook", async (req, res) => {
         res.json({
             message: "Captured"
         })
-    } catch(e) {
-        console.error(e);
-        res.status(411).json({
-            message: "Error while processing webhook"
-        })
+    } catch (e) {
+        console.error("Error while processing HDFC webhook:", {
+            error: e,
+            body: req.body,
+        });
+    
+        res.status(500).json({
+            message: "Error while processing webhook",
+            error: e instanceof Error ? e.message : e,
+        });
     }
 
 })
